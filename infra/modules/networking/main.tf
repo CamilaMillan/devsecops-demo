@@ -47,11 +47,14 @@ resource "aws_security_group" "ecs" {
 }
 
 resource "aws_lb" "this" {
-  name               = "${var.name_prefix}-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = var.subnet_ids
+  name                       = "${var.name_prefix}-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  security_groups            = [aws_security_group.alb.id]
+  subnets                    = var.subnet_ids
+  #enable_deletion_protection = false
+  enable_deletion_protection = true
+  drop_invalid_header_fields = true
 
   tags = var.common_tags
 }
