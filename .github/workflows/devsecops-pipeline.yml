@@ -4,9 +4,9 @@ on:
   push:
     branches:
       - dev
-      - lab
   pull_request:
     branches:
+      - lab
       - main
 
 env:
@@ -17,26 +17,21 @@ env:
   CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
 
 jobs:
-  validate-branch:
-    name: Validate branch
+  build-test-scan-deploy:
+    name: Build, test, scan and deploy
     runs-on: ubuntu-latest
+
     steps:
-      - name: Validate allowed branches
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate branch
         run: |
           echo "Branch: $GITHUB_REF_NAME"
           if [[ "$GITHUB_REF_NAME" != "dev" && "$GITHUB_REF_NAME" != "lab" && "$GITHUB_REF_NAME" != "main" ]]; then
             echo "Branch not allowed"
             exit 1
           fi
-
-  build-test-scan-deploy:
-    name: Build, test, scan and deploy
-    runs-on: ubuntu-latest
-    needs: validate-branch
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -54,13 +49,13 @@ jobs:
         run: |
           python -m pytest
 
-      - name: Run Terraform security scan with Checkov
+      - name: Run IaC security scan with Checkov
         uses: bridgecrewio/checkov-action@master
         with:
           directory: infra
           soft_fail: true
 
-      - name: Run Dockerfile vulnerability scan with Trivy
+      - name: Run filesystem security scan with Trivy
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
@@ -69,6 +64,7 @@ jobs:
           exit-code: "0"
 
       - name: Configure AWS credentials
+        if: github.ref_name == 'dev'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -76,9 +72,11 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
+        if: github.ref_name == 'dev'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push Docker image
+        if: github.ref_name == 'dev'
         working-directory: app
         run: |
           IMAGE_TAG=${GITHUB_SHA}
@@ -87,13 +85,15 @@ jobs:
           docker push $IMAGE_URI
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      - name: Deploy current ECS task definition
+      - name: Force ECS deployment
+        if: github.ref_name == 'dev'
         run: |
           aws ecs update-service \
             --cluster $ECS_CLUSTER \
             --service $ECS_SERVICE \
             --force-new-deployment
 
-      - name: Validate deployment health
+      - name: Validate deployment trigger
+        if: github.ref_name == 'dev'
         run: |
           echo "Deployment triggered successfully"
