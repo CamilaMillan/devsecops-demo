@@ -75,25 +75,122 @@ jobs:
         if: github.ref_name == 'dev'
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Capture current ECS task definition
+        if: github.ref_name == 'dev'
+        run: |
+          CURRENT_TASK_DEFINITION=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --query "services[0].taskDefinition" \
+            --output text)
+
+          echo "CURRENT_TASK_DEFINITION=$CURRENT_TASK_DEFINITION" >> $GITHUB_ENV
+          echo "Current task definition: $CURRENT_TASK_DEFINITION"
+
       - name: Build and push Docker image
         if: github.ref_name == 'dev'
         working-directory: app
         run: |
           IMAGE_TAG=${GITHUB_SHA}
           IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:${IMAGE_TAG}
+
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      - name: Force ECS deployment
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          echo "Image pushed: $IMAGE_URI"
+
+      - name: Download and clean current task definition
         if: github.ref_name == 'dev'
         run: |
+          aws ecs describe-task-definition \
+            --task-definition $CURRENT_TASK_DEFINITION \
+            --query taskDefinition > task-definition-raw.json
+
+          jq 'del(
+            .taskDefinitionArn,
+            .revision,
+            .status,
+            .requiresAttributes,
+            .compatibilities,
+            .registeredAt,
+            .registeredBy
+          )' task-definition-raw.json > task-definition.json
+
+      - name: Render new task definition with new image
+        if: github.ref_name == 'dev'
+        id: render-task-definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ secrets.CONTAINER_NAME }}
+          image: ${{ env.IMAGE_URI }}
+
+      - name: Deploy new task definition to ECS
+        if: github.ref_name == 'dev'
+        id: deploy-ecs
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
+          service: ${{ secrets.ECS_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Validate deployment health
+        if: github.ref_name == 'dev'
+        id: health-check
+        run: |
+          echo "Validating application health endpoint..."
+
+          for i in {1..10}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ secrets.APP_HEALTH_URL }}")
+
+            echo "Attempt $i - HTTP status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Health check failed"
+          exit 1
+
+      - name: Rollback to previous task definition
+        if: always() && failure() && github.ref_name == 'dev'
+        run: |
+          echo "Deployment failed. Rolling back to previous task definition: $CURRENT_TASK_DEFINITION"
+
           aws ecs update-service \
             --cluster $ECS_CLUSTER \
             --service $ECS_SERVICE \
-            --force-new-deployment
+            --task-definition $CURRENT_TASK_DEFINITION
 
-      - name: Validate deployment trigger
-        if: github.ref_name == 'dev'
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE
+
+          echo "Rollback completed"
+
+      - name: Validate rollback health
+        if: always() && failure() && github.ref_name == 'dev'
         run: |
-          echo "Deployment triggered successfully"
+          echo "Validating rollback health endpoint..."
+
+          for i in {1..10}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ secrets.APP_HEALTH_URL }}")
+
+            echo "Attempt $i - HTTP status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Rollback health check passed"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Rollback health check failed"
+          exit 1
