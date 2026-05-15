@@ -4,11 +4,12 @@ resource "aws_security_group" "alb" {
   vpc_id      = var.vpc_id
 
   ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  description = "Allow HTTP inbound traffic from internet to ALB"
+  from_port   = 80
+  to_port     = 80
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
 
   egress {
     from_port   = 0
@@ -26,11 +27,12 @@ resource "aws_security_group" "ecs" {
   vpc_id      = var.vpc_id
 
   ingress {
-    from_port       = var.container_port
-    to_port         = var.container_port
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
+  description     = "Allow application traffic from ALB to ECS tasks"
+  from_port       = var.container_port
+  to_port         = var.container_port
+  protocol        = "tcp"
+  security_groups = [aws_security_group.alb.id]
+}
 
   egress {
     from_port   = 0
