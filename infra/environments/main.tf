@@ -80,5 +80,7 @@ module "networking" {
   vpc_id         = data.aws_vpc.default.id
   subnet_ids     = data.aws_subnets.default.ids
   container_port = var.container_port
+  account_id     = data.aws_caller_identity.current.account_id
+
 }
 
