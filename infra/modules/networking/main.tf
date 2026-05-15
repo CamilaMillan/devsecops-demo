@@ -12,6 +12,7 @@ resource "aws_security_group" "alb" {
 }
 
   egress {
+    description = "Allow outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -35,6 +36,7 @@ resource "aws_security_group" "ecs" {
 }
 
   egress {
+    description = "Allow outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
