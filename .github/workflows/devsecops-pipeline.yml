@@ -123,7 +123,7 @@ jobs:
       - security-scan
     if: github.ref_name == 'dev' && needs.detect-changes.outputs.app_changed == 'true'
     outputs:
-      image_uri: ${{ steps.build-image.outputs.image_uri }}
+      image_uri: ${{ steps.build-image.outputs.IMAGE_URI }}
 
     steps:
       - name: Checkout repository
@@ -149,7 +149,7 @@ jobs:
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
 
-          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_OUTPUT
           echo "Image pushed: $IMAGE_URI"
 
   deploy:
@@ -157,6 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - detect-changes
+      - security-scan
       - build-and-push
     if: github.ref_name == 'dev' && needs.detect-changes.outputs.app_changed == 'true'
 
@@ -197,6 +198,16 @@ jobs:
             .registeredAt,
             .registeredBy
           )' task-definition-raw.json > task-definition.json
+
+      - name: Validate image URI received
+        run: |
+          echo "Image URI received from build job:"
+          echo "${{ needs.build-and-push.outputs.image_uri }}"
+
+          if [ -z "${{ needs.build-and-push.outputs.image_uri }}" ]; then
+            echo "ERROR: image_uri output is empty"
+            exit 1
+          fi
 
       - name: Render new task definition with new image
         id: render-task-definition
