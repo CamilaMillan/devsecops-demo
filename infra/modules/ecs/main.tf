@@ -62,6 +62,12 @@ resource "aws_ecs_service" "this" {
   depends_on = [
     aws_ecs_task_definition.this
   ]
+  
+  lifecycle {
+    ignore_changes = [
+      task_definition
+      ]
+  }
 
   tags = var.common_tags
 }
