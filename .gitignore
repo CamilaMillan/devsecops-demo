@@ -9,6 +9,7 @@ __pycache__/
 *.tfstate
 *.tfstate.*
 crash.log
+.terraform.lock.hcl
 
 # Sensitive config
 *.tfvars
