@@ -122,8 +122,6 @@ jobs:
       - detect-changes
       - security-scan
     if: github.ref_name == 'dev' && needs.detect-changes.outputs.app_changed == 'true'
-    outputs:
-      image_uri: ${{ steps.build-image.outputs.IMAGE_URI }}
 
     steps:
       - name: Checkout repository
@@ -140,7 +138,6 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push Docker image
-        id: build-image
         working-directory: app
         run: |
           IMAGE_TAG=${GITHUB_SHA}
@@ -149,7 +146,6 @@ jobs:
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
 
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_OUTPUT
           echo "Image pushed: $IMAGE_URI"
 
   deploy:
@@ -160,6 +156,8 @@ jobs:
       - security-scan
       - build-and-push
     if: github.ref_name == 'dev' && needs.detect-changes.outputs.app_changed == 'true'
+    env:
+      IMAGE_URI: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
 
     steps:
       - name: Checkout repository
@@ -201,11 +199,11 @@ jobs:
 
       - name: Validate image URI received
         run: |
-          echo "Image URI received from build job:"
-          echo "${{ needs.build-and-push.outputs.image_uri }}"
+          echo "Image URI to deploy:"
+          echo "$IMAGE_URI"
 
-          if [ -z "${{ needs.build-and-push.outputs.image_uri }}" ]; then
-            echo "ERROR: image_uri output is empty"
+          if [ -z "$IMAGE_URI" ]; then
+            echo "ERROR: IMAGE_URI is empty"
             exit 1
           fi
 
@@ -215,7 +213,7 @@ jobs:
         with:
           task-definition: task-definition.json
           container-name: ${{ secrets.CONTAINER_NAME }}
-          image: ${{ needs.build-and-push.outputs.image_uri }}
+          image: ${{ env.IMAGE_URI }}
 
       - name: Deploy new task definition to ECS
         id: deploy-ecs
