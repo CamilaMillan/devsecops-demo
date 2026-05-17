@@ -9,8 +9,7 @@ def root():
     return JSONResponse(
         content={
             "message": "Aplicación Demo DevSecOps - Prueba Técnica Daviplata",
-            "description": "Aplicación desplegada exitosamente con CI/CD, Docker, ECR y ECS Fargate.",
-            "encoding": "UTF-8"
+            "description": "Aplicación desplegada exitosamente con CI/CD, Docker, ECR y ECS Fargate."
         },
         media_type="application/json; charset=utf-8"
     )
