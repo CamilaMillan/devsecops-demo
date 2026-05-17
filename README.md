@@ -398,6 +398,7 @@ Con los siguientes nombres:
 13-rollback-Error_pipeline-deploy-ecs.jpg
 14-rollback-Error_pipeline-deploy-ecs_2.jpg
 15-Validate-rollback-health.jpg
+16-validate-promotion-flow.jpg
 ```
 
 ---
