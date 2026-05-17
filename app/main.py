@@ -18,10 +18,6 @@ def root():
 
 @app.get("/health")
 def health():
-    return JSONResponse(
-        content={
-            "status": "healthy",
-            "encoding": "UTF-8"
-        },
-        media_type="application/json; charset=utf-8"
-    )
+    return {
+        "status": "healthy"
+    }

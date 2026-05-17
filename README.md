@@ -356,13 +356,13 @@ La entrega incluye evidencias de:
 - Escaneos de seguridad ejecutados
 - Rollback automático ejecutado exitosamente
 
-Las evidencias en la carpeta:
+Las evidencias se encuentran en la carpeta:
 
 ```text
 evidence/
 ```
 
-Nombres sugeridos:
+Con los siguientes nombres:
 
 ```text
 01-successful-pipeline.png
