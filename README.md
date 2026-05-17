@@ -108,7 +108,7 @@ Endpoints principales:
 
 ## Infraestructura con Terraform
 
-Toda la infraestructura fue aprovisionada mediante Terraform, usando modulos para separar los recursos por dominio funcional.
+Toda la infraestructura fue aprovisionada mediante Terraform, usando módulos para separar los recursos por dominio funcional.
 
 ### Backend remoto
 
@@ -158,7 +158,7 @@ El pipeline fue implementado con GitHub Actions y se dividió en etapas independ
 
 1. **Detect changed paths**
    - Detecta si hubo cambios en la aplicación.
-   - Evita despliegues innecesarios cuando solo cambia documentación, Terraform o workflows.
+   - Evita despliegues innecesarios cuando solo cambia documentación u otros archivos que no afectan la aplicación.
 
 2. **Validate branch strategy**
    - Valida la estrategia de ramas definida.
@@ -237,6 +237,23 @@ Adicionalmente, se implementó un workflow de validación para controlar el fluj
 
 - `lab` solo debe recibir cambios desde `dev`
 - `main` solo debe recibir cambios desde `lab`
+
+---
+
+## Estrategia de despliegue continuo controlado
+
+Para un escenario productivo, el despliegue continuo debería estar controlado por permisos y aprobaciones. La estrategia recomendada sería:
+
+- Mantener el flujo de ramas `dev → lab → main`.
+- Permitir despliegues automáticos desde `dev` hacia ambientes de desarrollo.
+- Exigir Pull Request para promover cambios hacia `lab` y `main`.
+- Configurar protección de ramas para evitar pushes directos a ramas críticas.
+- Usar GitHub Environments para definir aprobadores autorizados antes de desplegar a ambientes sensibles.
+- Asociar los despliegues a usuarios o equipos autorizados mediante permisos del repositorio y reglas de aprobación.
+- Usar GitHub Secrets o, preferiblemente en producción, OpenID Connect (OIDC) con AWS IAM para evitar almacenar credenciales estáticas.
+- Registrar trazabilidad completa entre commit, usuario aprobador, pipeline, imagen publicada y task definition desplegada.
+
+Con esta estrategia, el pipeline mantiene automatización, pero los despliegues hacia ambientes controlados requieren aprobación explícita de usuarios autorizados.
 
 ---
 
@@ -365,16 +382,22 @@ evidence/
 Con los siguientes nombres:
 
 ```text
-01-successful-pipeline.png
-02-ecs-service-healthy.png
-03-alb-target-healthy.png
-04-cloudwatch-app-logs.png
-05-container-insights.png
-06-alb-access-logs-s3.png
-07-rollback-failure.png
-08-rollback-success.png
-09-checkov-security-controls.png
-10-trivy-scan.png
+01-successful-pipeline.jpg
+02-ecs-service-healthy.jpg
+03-alb-target-healthy.jpg
+04-cloudwatch-app-logs.jpg
+05-container-insights.jpg
+05-container-insights_2.jpg
+06-logs_ecs_devsecops-demo-dev.jpg
+07-alb-access-logs-s3.jpg
+08-run-unit-tests.jpg
+09-run-security-scans.jpg
+10-build-and-push-dockerImage.jpg
+11-deploy-to-ecs.jpg
+12-rollback-Error_ECS_Task.jpg
+13-rollback-Error_pipeline-deploy-ecs.jpg
+14-rollback-Error_pipeline-deploy-ecs_2.jpg
+15-Validate-rollback-health.jpg
 ```
 
 ---
@@ -385,9 +408,9 @@ En el escaneo de seguridad se evidencian hallazgos que fueron analizados y docum
 
 | Hallazgo | Decisión |
 |---|---|
-| ALB con HTTP | Para demo se expone HTTP. En casos de la vida real se debe exponer HTTPS con ACM. |
+| ALB con HTTP | Para fines del demo se expone HTTP. En casos de la vida real se debe exponer HTTPS con ACM. |
 | ECS con IP pública | La arquitectura demo está basada en subnets públicas. En un escenario productivo se recomienda el uso de subnets privadas con NAT Gateway o VPC Endpoints según requerimientos de seguridad. |
-| Security Groups con egress amplio | Por el demo para simplificar conectividad se deja habilitado. En casos de la vida real se debe limitar tráfico saliente. |
+| Security Groups con egress amplio | Para simplificar la conectividad del demo se mantiene habilitado. En casos de la vida real se debe limitar tráfico saliente. |
 | KMS administrado por cliente | Se priorizó el uso de cifrado administrado por AWS para acelerar la implementación funcional del ejercicio. La adopción de claves KMS administradas por cliente se documenta como mejora futura. |
 | Hardening adicional de S3/DynamoDB | Se priorizó el foco del ejercicio sobre la cadena DevSecOps de despliegue de aplicación. Endurecimientos adicionales sobre componentes de soporte como S3 y DynamoDB se documentan como mejoras futuras. |
 
