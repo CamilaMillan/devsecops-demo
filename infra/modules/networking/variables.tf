@@ -17,3 +17,8 @@ variable "subnet_ids" {
 variable "container_port" {
   type = number
 }
+
+variable "account_id" {
+  type        = string
+  description = "AWS account ID"
+}

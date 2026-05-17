@@ -1,0 +1,29 @@
+name: Branch Promotion Validation
+
+on:
+  pull_request:
+    branches:
+      - lab
+      - main
+
+jobs:
+  validate-promotion-flow:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate promotion flow
+        run: |
+          echo "Source branch: ${{ github.head_ref }}"
+          echo "Target branch: ${{ github.base_ref }}"
+
+          if [[ "${{ github.base_ref }}" == "lab" && "${{ github.head_ref }}" != "dev" ]]; then
+            echo "ERROR: lab only accepts PRs from dev"
+            exit 1
+          fi
+
+          if [[ "${{ github.base_ref }}" == "main" && "${{ github.head_ref }}" != "lab" ]]; then
+            echo "ERROR: main only accepts PRs from lab"
+            exit 1
+          fi
+
+          echo "Promotion flow valid"

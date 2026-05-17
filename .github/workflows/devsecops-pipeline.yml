@@ -1,0 +1,283 @@
+name: DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - lab
+      - main
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+  ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+  CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
+
+jobs:
+  detect-changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      app_changed: ${{ steps.filter.outputs.app }}
+      infra_changed: ${{ steps.filter.outputs.infra }}
+      workflow_changed: ${{ steps.filter.outputs.workflow }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          base: ${{ github.event.before }}
+          filters: |
+            app:
+              - 'app/**'
+            infra:
+              - 'infra/**'
+            workflow:
+              - '.github/workflows/**'
+
+  validate-branch:
+    name: Validate branch strategy
+    runs-on: ubuntu-latest
+    needs: detect-changes
+
+    steps:
+      - name: Validate branch
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref name: $GITHUB_REF_NAME"
+          echo "Head branch: ${{ github.head_ref }}"
+          echo "Base branch: ${{ github.base_ref }}"
+
+          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF_NAME" != "dev" ]]; then
+            echo "Push deployments are only allowed from dev"
+            exit 1
+          fi
+
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" != "lab" && "${{ github.base_ref }}" != "main" ]]; then
+            echo "Pull requests are only allowed to lab or main"
+            exit 1
+          fi
+
+          echo "Branch validation passed"
+
+  test:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    needs: validate-branch
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: app
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        working-directory: app
+        run: |
+          python -m pytest
+
+  security-scan:
+    name: Run security scans
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run IaC security scan with Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra
+          soft_fail: true
+
+      - name: Run filesystem security scan with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+  build-and-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    needs:
+      - detect-changes
+      - security-scan
+    if: github.ref_name == 'dev' && needs.detect-changes.outputs.app_changed == 'true'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        working-directory: app
+        run: |
+          IMAGE_TAG=${GITHUB_SHA}
+          IMAGE_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:${IMAGE_TAG}
+
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+
+          echo "Image pushed: $IMAGE_URI"
+
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs:
+      - detect-changes
+      - security-scan
+      - build-and-push
+    if: github.ref_name == 'dev' && needs.detect-changes.outputs.app_changed == 'true'
+    env:
+      IMAGE_URI: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Capture current ECS task definition
+        run: |
+          CURRENT_TASK_DEFINITION=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --query "services[0].taskDefinition" \
+            --output text)
+
+          echo "CURRENT_TASK_DEFINITION=$CURRENT_TASK_DEFINITION" >> $GITHUB_ENV
+          echo "Current task definition: $CURRENT_TASK_DEFINITION"
+
+      - name: Download and clean current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $CURRENT_TASK_DEFINITION \
+            --query taskDefinition > task-definition-raw.json
+
+          jq 'del(
+            .taskDefinitionArn,
+            .revision,
+            .status,
+            .requiresAttributes,
+            .compatibilities,
+            .registeredAt,
+            .registeredBy
+          )' task-definition-raw.json > task-definition.json
+
+      - name: Validate image URI received
+        run: |
+          echo "Image URI to deploy:"
+          echo "$IMAGE_URI"
+
+          if [ -z "$IMAGE_URI" ]; then
+            echo "ERROR: IMAGE_URI is empty"
+            exit 1
+          fi
+
+      - name: Render new task definition with new image
+        id: render-task-definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ secrets.CONTAINER_NAME }}
+          image: ${{ env.IMAGE_URI }}
+
+      - name: Deploy new task definition to ECS
+        id: deploy-ecs
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
+          service: ${{ secrets.ECS_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Validate deployment health
+        id: health-check
+        run: |
+          echo "Validating application health endpoint..."
+
+          for i in {1..10}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ secrets.APP_HEALTH_URL }}")
+
+            echo "Attempt $i - HTTP status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Health check failed"
+          exit 1
+
+      - name: Rollback to previous task definition
+        if: always() && failure()
+        run: |
+          echo "Deployment failed. Rolling back to previous task definition: $CURRENT_TASK_DEFINITION"
+
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --task-definition $CURRENT_TASK_DEFINITION
+
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE
+
+          echo "Rollback completed"
+
+      - name: Validate rollback health
+        if: always() && failure()
+        run: |
+          echo "Validating rollback health endpoint..."
+
+          for i in {1..10}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ secrets.APP_HEALTH_URL }}")
+
+            echo "Attempt $i - HTTP status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Rollback health check passed"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Rollback health check failed"
+          exit 1

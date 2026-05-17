@@ -1,36 +1,22 @@
 from fastapi import FastAPI
-import os
+from fastapi.responses import JSONResponse
 
-app = FastAPI()
-
-VERSION = os.getenv("APP_VERSION", "1.0.0")
-ENVIRONMENT = os.getenv("APP_ENV", "dev")
+app = FastAPI(title="DevSecOps Demo Application")
 
 
 @app.get("/")
 def root():
-    return {
-        "message": "Prueba Técnica DevSecOps - DaviPlata",
-        "environment": ENVIRONMENT
-    }
+    return JSONResponse(
+        content={
+            "message": "Aplicación Demo DevSecOps - Prueba Técnica Daviplata",
+            "description": "Aplicación desplegada exitosamente con CI/CD, Docker, ECR y ECS Fargate."
+        },
+        media_type="application/json; charset=utf-8"
+    )
 
 
 @app.get("/health")
 def health():
     return {
         "status": "healthy"
-    }
-
-
-@app.get("/version")
-def version():
-    return {
-        "version": VERSION
-    }
-
-@app.get("/config")
-def config():
-    return {
-        "environment": ENVIRONMENT,
-        "version": VERSION
     }
