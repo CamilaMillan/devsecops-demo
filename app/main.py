@@ -8,7 +8,7 @@ app = FastAPI(title="DevSecOps Demo Application")
 def root():
     return JSONResponse(
         content={
-            "message": "DevSecOps Demo Application 🚀 Prueba Técnica Daviplata",
+            "message": "Aplicación Demo DevSecOps - Prueba Técnica Daviplata",
             "description": "Aplicación desplegada exitosamente con CI/CD, Docker, ECR y ECS Fargate.",
             "encoding": "UTF-8"
         },
@@ -18,6 +18,10 @@ def root():
 
 @app.get("/health")
 def health():
-    return {
-        "status": "healthy"
-    }
+    return JSONResponse(
+        content={
+            "status": "healthy",
+            "encoding": "UTF-8"
+        },
+        media_type="application/json; charset=utf-8"
+    )
